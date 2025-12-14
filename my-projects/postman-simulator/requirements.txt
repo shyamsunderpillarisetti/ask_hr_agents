@@ -1,1 +1,1 @@
-pytest>=7.0
+# requirements removed (package cleared)

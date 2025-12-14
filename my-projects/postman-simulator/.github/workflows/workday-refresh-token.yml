@@ -1,0 +1,23 @@
+name: Refresh Workday token (Refresh Token)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  refresh-token:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refresh access token using refresh_token
+        env:
+          WORKDAY_CLIENT_ID: ${{ secrets.WORKDAY_CLIENT_ID }}
+          WORKDAY_CLIENT_SECRET: ${{ secrets.WORKDAY_CLIENT_SECRET }}
+          WORKDAY_REFRESH_TOKEN: ${{ secrets.WORKDAY_REFRESH_TOKEN }}
+          TOKEN_URL: https://wd5-impl-services1.workday.com/ccx/oauth2/michaels1/token
+        run: |
+          echo "Refreshing token at $TOKEN_URL"
+          resp=$(curl -s -u "$WORKDAY_CLIENT_ID:$WORKDAY_CLIENT_SECRET" \
+            -d "grant_type=refresh_token&refresh_token=$WORKDAY_REFRESH_TOKEN" \
+            -H 'Content-Type: application/x-www-form-urlencoded' \
+            "$TOKEN_URL")
+          echo "Response: $resp"
+          echo "token=$resp" >> $GITHUB_OUTPUT
