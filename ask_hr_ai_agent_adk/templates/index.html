@@ -329,6 +329,9 @@
         function parseMarkdown(text) {
             let html = text;
             
+            // Convert [text](url) to <a href="url" target="_blank">text</a>
+            html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" style="color: #667eea; text-decoration: underline; font-weight: 600; cursor: pointer;">$1</a>');
+            
             // Convert **text** to <strong>text</strong>
             html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
             

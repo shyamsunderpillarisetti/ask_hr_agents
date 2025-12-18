@@ -1,8 +1,9 @@
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, send_file
 from typing import Dict, Any, Tuple
 import traceback
 import os
 from agent import chat_with_workday, reset_auth_cache
+from doc_generator import get_document_from_cache, get_document_filename_from_cache
 
 app = Flask(__name__)
 
@@ -55,12 +56,31 @@ def internal_error(error) -> Tuple[Dict[str, str], int]:
 def reset() -> Tuple[Dict[str, Any], int]:
     """Clear cached auth so next request prompts login again."""
     try:
-        from agent import reset_auth_cache
         ok = reset_auth_cache()
         return jsonify({'success': ok, 'message': 'Auth cache cleared. Next request will trigger login.'}), 200
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+
+@app.route('/download_doc/<doc_key>', methods=['GET'])
+def download_doc_from_memory(doc_key: str):
+    """Download a document from memory cache."""
+    doc_bytes = get_document_from_cache(doc_key)
+    if doc_bytes is None:
+        return jsonify({'error': 'Document not found or expired'}), 404
+    
+    filename = get_document_filename_from_cache(doc_key) or "document.docx"
+    
+    # Reset BytesIO position to beginning
+    doc_bytes.seek(0)
+    
+    return send_file(
+        doc_bytes,
+        mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        as_attachment=True,
+        download_name=filename
+    )
+
+
 if __name__ == '__main__':
-    # Disable Flask's auto-reloader to keep the dev server stable in VS Code terminals
     app.run(debug=True, host='127.0.0.1', port=5000, use_reloader=False)

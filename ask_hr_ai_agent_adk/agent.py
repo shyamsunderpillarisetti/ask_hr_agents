@@ -12,6 +12,7 @@ from google import genai
 from google.genai import types
 
 from workday_api import complete_oauth_flow, get_valid_time_off_dates, submit_time_off_request
+from doc_generator import generate_docx_from_template, get_document_from_cache
 
 CONFIG_PATH = str(Path(__file__).parent / "config.json")
 TOKEN_CACHE_PATH = str(Path(__file__).parent / ".token_cache.pkl")
@@ -268,10 +269,108 @@ def submit_time_off_tool(time_off_type_id: str, start_date: str, end_date: str,
     return submit_time_off(time_off_type_id, start_date, end_date, hours_per_day, comment)
 
 
-client = genai.Client()
-tools = [get_workday_id_tool, check_valid_dates_tool, submit_time_off_tool]
+def generate_employment_verification_letter_tool() -> str:
+    """Generate an employment verification letter for the current user using the template and auto-filled context."""
+    try:
+        context = get_template_context()
+        # Use legal_name if available, otherwise fall back to employee_name, then 'Employee'
+        legal_name = context.get('legal_name') or context.get('employee_name') or 'Employee'
+        result = generate_docx_from_template(
+            template_name="evl_template.docx",
+            context=context,
+            filename=f"Employment Verification Letter - {legal_name}.docx"
+        )
+        filename = result.get("filename")
+        doc_key = result.get("download_key")
+        download_url = f"/download_doc/{doc_key}"
+        message = f"Your employment verification letter has been generated. **[Download here]({download_url})** - opens in a new tab."
+        return json.dumps({
+            "success": True,
+            "filename": filename,
+            "download_key": doc_key,
+            "download_url": download_url,
+            "message": message
+        })
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)})
 
-SYSTEM_INSTRUCTION = """You are AskHR AI, an HR assistant powered by Workday. You have access to the user's HR data and can answer questions about their profile, leave balances, time-off requests, and more. Respond naturally and helpfully using the information you have.
+
+tools = [
+    get_workday_id_tool,
+    check_valid_dates_tool,
+    submit_time_off_tool,
+    generate_employment_verification_letter_tool,
+]
+
+
+def get_template_context(overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Return a default context mapping for templates from Workday user summary.
+
+    Keys provided:
+    employee_name, legal_name, email, job_title, manager, location,
+    hire_date, worker_type, workday_id, today_date (and alias Today_Date).
+    """
+    try:
+        data = json.loads(get_workday_id())
+        summary = data.get('summary', {}) if isinstance(data, dict) else {}
+        raw = data.get('raw_data', {}) if isinstance(data, dict) else {}
+        raw_legal = raw.get('legal_name', {}) if isinstance(raw, dict) else {}
+        from datetime import date
+        today_str = date.today().strftime("%B %d, %Y")
+        ctx = {
+            "employee_name": summary.get("name"),
+            "legal_name": summary.get("legal_name"),
+            "email": summary.get("email"),
+            "job_title": summary.get("job_title"),
+            "manager": summary.get("manager"),
+            "location": summary.get("location"),
+            "hire_date": summary.get("hire_date"),
+            "worker_type": summary.get("worker_type"),
+            "workday_id": summary.get("workday_id"),
+            "today_date": today_str,
+            "Today_Date": today_str,
+        }
+        # auto-generate common alias variations (Title_Snake and PascalCase)
+        def add_alias_variants(key: str):
+            val = ctx.get(key)
+            if val is None:
+                return
+            parts = key.split("_")
+            title_snake = "_".join(p.capitalize() for p in parts)
+            pascal = "".join(p.capitalize() for p in parts)
+            ctx[title_snake] = val
+            ctx[pascal] = val
+        for base_key in [
+            "employee_name","legal_name","email","job_title","manager",
+            "location","hire_date","worker_type","workday_id","today_date"
+        ]:
+            add_alias_variants(base_key)
+        # common alias mappings for template variables
+        ctx.update({
+            "Employee_Legal_Name": ctx.get("legal_name"),
+            "Employee_Name": ctx.get("employee_name"),
+            "Employee_Email": ctx.get("email"),
+            "Employee_Position": ctx.get("job_title"),
+            "Manager_Name": ctx.get("manager"),
+            "Employee_Location": ctx.get("location"),
+            "Hire_Date": ctx.get("hire_date"),
+            "Worker_Type": ctx.get("worker_type"),
+            "Employee_Workday_ID": ctx.get("workday_id"),
+            "legal_first_name": raw_legal.get("first"),
+            "legal_last_name": raw_legal.get("last"),
+            "Legal_First_Name": raw_legal.get("first"),
+            "Legal_Last_Name": raw_legal.get("last"),
+        })
+        if overrides and isinstance(overrides, dict):
+            ctx.update(overrides)
+        return ctx
+    except Exception:
+        return overrides or {}
+
+
+client = genai.Client()
+
+SYSTEM_INSTRUCTION = """You are AskHR AI, an HR assistant powered by Workday. You have access to the user's HR data and can answer questions about their profile, leave balances, time-off requests, and document generation. Respond naturally and helpfully using the information you have.
 
 When users mention dates in natural language, convert them to YYYY-MM-DD format for any tools that require dates. You understand:
 - Relative dates: "today", "tomorrow", "next Monday", "this Friday", "in 3 days", "in 2 weeks", "next month"
@@ -279,9 +378,11 @@ When users mention dates in natural language, convert them to YYYY-MM-DD format 
 - Month-Day format: "December 25", "Dec 25", "12/25"
 - Full dates: "12/25/2025", "December 25, 2025"
 - Ranges: "next week", "end of month", "beginning of next week", "last 2 weeks"
-- Holidays and common dates: "Thanksgiving", "Christmas", "New Year's Day"
-- Recurring patterns: "every Monday", "all Fridays next month"
-Convert all these naturally to the proper YYYY-MM-DD dates before submitting.
+
+DOCUMENT GENERATION:
+- If the user asks for an employment verification letter, use generate_employment_verification_letter_tool() to create it.
+- The tool auto-fills fields from their Workday profile (legal name, job title, manager, etc.) and returns a download link.
+- Always provide the download URL to the user in your response so they can access the letter immediately.
 
 CRITICAL - Time-Off Submission Rules (MANDATORY):
 
@@ -354,6 +455,11 @@ def chat_with_workday(user_message: str) -> str:
     global _chat_history, _submission_complete
     
     try:
+        # Reset chat history if previous submission completed
+        if _submission_complete:
+            _chat_history = []
+            _submission_complete = False
+        
         context = get_user_context()
         today_str = date.today().isoformat()
         full_message = f"{context}\n\nTODAY: {today_str}\n\nUSER MESSAGE: {user_message}"
@@ -415,7 +521,6 @@ def chat_with_workday(user_message: str) -> str:
                                     tool_args.get('comment')
                                 )
                                 _submission_complete = True
-                                _chat_history = []
                             else:
                                 result = json.dumps({"error": f"Unknown tool: {tool_name}"})
                             
