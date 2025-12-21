@@ -35,8 +35,8 @@ if os.getenv("ASKHR_DISABLE_SSL_VERIFY", "false").lower() in ("1", "true", "yes"
 from google import genai
 from google.genai import types
 
-from workday_api import complete_oauth_flow, get_valid_time_off_dates, submit_time_off_request
-from doc_generator import (
+from .workday_api import complete_oauth_flow, get_valid_time_off_dates, submit_time_off_request
+from .doc_generator import (
     generate_docx_from_template,
     generate_docx_from_template_as_pdf,
     get_document_from_cache,

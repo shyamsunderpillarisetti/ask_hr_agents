@@ -8,8 +8,8 @@ from fastapi.responses import JSONResponse, StreamingResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from agent import chat_with_workday, get_workday_id, reset_auth_cache
-from doc_generator import (
+from .agent import chat_with_workday, get_workday_id, reset_auth_cache
+from .doc_generator import (
     get_document_filename_from_cache,
     get_document_from_cache,
     get_document_mimetype_from_cache,

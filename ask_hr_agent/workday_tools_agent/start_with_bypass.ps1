@@ -7,7 +7,8 @@ param(
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path $MyInvocation.MyCommand.Path -Parent
-Set-Location $root
+$repoRoot = Split-Path $root -Parent
+Set-Location $repoRoot
 
 # Opt-in TLS bypass (for local debugging only)
 $env:ASKHR_DISABLE_SSL_VERIFY = "true"
@@ -22,6 +23,6 @@ if (Test-Path $edgeDriver) {
     $env:PATH = "$edgeDriver;$env:PATH"
 }
 
-Write-Host "Starting AskHR server with TLS bypass enabled on port $Port (browser=$Browser, headless=$($Headless.IsPresent))"
+Write-Host "Starting AskHR Workday tools server with TLS bypass enabled on port $Port (browser=$Browser, headless=$($Headless.IsPresent))"
 
-& "$root\.venv\Scripts\python.exe" -m uvicorn server:app --host 127.0.0.1 --port $Port
+& "$repoRoot\.venv\Scripts\python.exe" -m uvicorn workday_tools_agent.server:app --host 127.0.0.1 --port $Port
